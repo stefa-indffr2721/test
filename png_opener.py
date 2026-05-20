@@ -1,3 +1,4 @@
+import sys
 import zlib
 
 
@@ -93,7 +94,7 @@ def read_png(path):
     png_signature = b"\x89PNG\r\n\x1a\n"
     if data[:8] != png_signature:
         print("ошибка: это не png файл")
-        return None
+        sys.exit(1)
 
     chunks = []
     pos = 8

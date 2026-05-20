@@ -1,7 +1,7 @@
-#python main.py -i 3.png -w 100 -H 50 -s char.txt -o result.txt
 import sys
 import argparse
 import time
+import os.path
 
 import handling
 import converter
@@ -24,21 +24,30 @@ def get_args():
 
     args = parser.parse_args()
 
+    if not args.output is None and args.video:
+        print("Вывод видео в файл невозможен!")
+        sys.exit(1)
+
     if args.set == "":
         parser.print_help()
         sys.exit(1)
-
-    try:
-        f = open(args.input)
-        f.close()
-    except FileNotFoundError:
-        print("указанный входной файл не найден")
+    if not args.input is None:
+        try:
+            f = open(args.input)
+            f.close()
+        except FileNotFoundError:
+            print("указанный входной файл не найден")
+            sys.exit(1)
+    else:
+        parser.print_help()
         sys.exit(1)
-
     return args
 
 
-def cout(image, path, ansi):
+def print_to(image, path, ansi):
+    if ansi and path:
+        print("Цветной вывод в файл невозможен")
+        sys.exit(1)
     if ansi:
         writer = AnsiWriter()
         writer.write(image)
@@ -51,6 +60,11 @@ def cout(image, path, ansi):
 
 
 def get_charset(args):
+    if not args.set is None:
+        if not os.path.exists(str(args.set)):
+            print("файл указанный как charset - не существует")
+            sys.exit(1)
+
     if not args.set is None:
         with open(args.set) as f:
             charset = f.readline().replace("\n", "")
@@ -101,7 +115,7 @@ def main():
     else:
         image = handling.prepare(args.input, args.wight, args.height)
         image_ASCII = converter.convert(image, charset)
-        cout(image_ASCII, args.output, args.ansi)
+        print_to(image_ASCII, args.output, args.ansi)
 
 
 if __name__ == "__main__":

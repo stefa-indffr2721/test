@@ -50,5 +50,18 @@ class TestResize(unittest.TestCase):
         self.assertEqual(len(result[0]), 20)
 
 
+class TestPrepare(unittest.TestCase):
+
+    def test_prepare_with_width(self):
+        """ проверка, что prepare меняет ширину """
+        result = handling.prepare("2.png", 10, None)
+        self.assertEqual(len(result[0]), 10)
+
+    def test_prepare_with_height(self):
+        """ проверка, что prepare меняет высоту """
+        result = handling.prepare("2.png", None, 5)
+        self.assertEqual(len(result), 5)
+
+
 if __name__ == "__main__":
     unittest.main()
