@@ -49,16 +49,27 @@ class TestMainWindow(unittest.TestCase):
         self.window.on_finished()
         self.assertEqual(self.window.button_run.text(), "Запустить")
 
+    def _make_worker(self):
+        """ создаёт фиктивный WorkerThread и привязывает его к окну """
+        def dummy():
+            pass
+        worker = WorkerThread(dummy, [])
+        self.window.worker = worker
+        return worker
+
     def test_run_image(self):
         """ проверка, что run_image не падает при работе с реальным файлом """
+        self._make_worker()
         self.window.run_image("2.png", 10, 10, " @", "", False)
 
     def test_run_image_ansi(self):
         """ проверка, что run_image не падает в ansi режиме """
+        self._make_worker()
         self.window.run_image("2.png", 10, 10, " @", "", True)
 
     def test_run_image_to_file(self):
         """ проверка, что run_image не падает при сохранении в файл """
+        self._make_worker()
         temp = "temp_gui_test.txt"
         self.window.run_image("2.png", 10, 10, " @", temp, False)
         if os.path.exists(temp):
@@ -66,11 +77,17 @@ class TestMainWindow(unittest.TestCase):
 
     def test_run_video(self):
         """ проверка, что run_video не падает при работе с реальным файлом """
-        self.window.run_video("1h.mp4", 20, 10, " @", False)
+        import threading
+        self._make_worker()
+        frame_done = threading.Event()
+        self.window.run_video("1h.mp4", 20, 10, " @", False, frame_done)
 
     def test_run_video_ansi(self):
         """ проверка, что run_video не падает в ansi режиме """
-        self.window.run_video("1h.mp4", 20, 10, " @", True)
+        import threading
+        self._make_worker()
+        frame_done = threading.Event()
+        self.window.run_video("1h.mp4", 20, 10, " @", True, frame_done)
 
 
 class TestWorkerThread(unittest.TestCase):
