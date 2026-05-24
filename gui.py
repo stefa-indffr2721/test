@@ -1,6 +1,7 @@
 import sys
 import os.path
 import time
+import re
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -10,21 +11,95 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QCheckBox,
     QFileDialog,
-    QMessageBox
+    QMessageBox,
+    QPlainTextEdit,
 )
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtGui import QFont, QColor, QTextCursor, QTextCharFormat, QTextBlockFormat
+from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
+import threading
 
 import handling
 import converter
-import console_writer
 from file_writer import FileWriter
-from ansi_writer import AnsiWriter
 import video_reader
 
 CHARSET = " .+*=#@"
+LINE_HEIGHT = 10
+
+class TerminalWidget(QPlainTextEdit):
+    _text_ready = pyqtSignal(str)
+    frame_done = None
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setStyleSheet("background-color: #1e1e1e; color: #d3d7cf; line-height: 1;")
+        self._fmt = QTextCharFormat()
+        self._text_ready.connect(self._do_send_text)
+
+        block_fmt = QTextBlockFormat()
+        block_fmt.setLineHeight(LINE_HEIGHT, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+        block_fmt.setTopMargin(0)
+        block_fmt.setBottomMargin(0)
+        cursor = self.textCursor()
+        cursor.setBlockFormat(block_fmt)
+        self.setTextCursor(cursor)
+        self._block_fmt = block_fmt
+
+    def send_text(self, text: str):
+        self._text_ready.emit(text)
+
+    @pyqtSlot(str)
+    def _do_send_text(self, text: str):
+        if text.startswith("\033[H\033[J"):
+            text = text[len("\033[H\033[J"):]
+        elif text.startswith("\033[H"):
+            text = text[len("\033[H"):]
+
+        if '\033' not in text:
+            self.setPlainText(text)
+            cursor = self.textCursor()
+            cursor.select(QTextCursor.SelectionType.Document)
+            cursor.setBlockFormat(self._block_fmt)
+            cursor.clearSelection()
+            self.setTextCursor(cursor)
+            if self.frame_done:
+                self.frame_done.set()
+            return
+
+        self.clear()
+        self._fmt = QTextCharFormat()
+
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+
+        parts = re.split(r'(\x1b\[[0-9;]*m)', text)
+        for part in parts:
+            m = re.fullmatch(r'\x1b\[([0-9;]*)m', part)
+            if m:
+                codes = m.group(1).split(';') if m.group(1) else ['0']
+                i = 0
+                while i < len(codes):
+                    code = codes[i]
+                    if code in ('0', ''):
+                        self._fmt = QTextCharFormat()
+                    elif code == '38' and i + 1 < len(codes) and codes[i + 1] == '2':
+                        if i + 4 < len(codes):
+                            r, g, b = int(codes[i+2]), int(codes[i+3]), int(codes[i+4])
+                            self._fmt.setForeground(QColor(r, g, b))
+                            i += 4
+                    i += 1
+            else:
+                cursor.insertText(part, self._fmt)
+
+        self.setTextCursor(cursor)
+
+        if self.frame_done:
+            self.frame_done.set()
 
 
 class WorkerThread(QThread):
+    frame_signal = pyqtSignal(object)
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
@@ -46,7 +121,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ASCII-Art")
-        self.setFixedSize(420, 360)
+        self.setFixedSize(420, 610)
         self.worker = None
         self.setup_ui()
 
@@ -118,6 +193,15 @@ class MainWindow(QWidget):
         self.button_run.resize(380, 40)
         self.button_run.clicked.connect(self.run)
 
+        self.screen = TerminalWidget(self)
+        self.screen.move(20, 360)
+        self.screen.resize(380, 230)
+        font = QFont("Courier New", 8, QFont.Weight.Bold)
+        self.screen.setFont(font)
+        self.screen.document().setDocumentMargin(0)
+        self._frame_done = threading.Event()
+        self.screen.frame_done = self._frame_done
+
     def browse_input(self):
         path, _ = QFileDialog.getOpenFileName(self, "Выберите файл", "", "Файлы (*.png *.mp4 *.avi)")
         if path != "":
@@ -142,6 +226,14 @@ class MainWindow(QWidget):
 
         if input_path == "":
             QMessageBox.warning(self, "Ошибка", "Укажите входной файл")
+            return
+
+        video_extensions = ('.mp4', '.avi', '.mov', '.mkv')
+        if input_path.lower().endswith(video_extensions) and not video:
+            QMessageBox.warning(self, "Ошибка", "Входной файл — видео, но режим видео не включён!")
+            return
+        if not input_path.lower().endswith(video_extensions) and video:
+            QMessageBox.warning(self, "Ошибка", "Входной файл — не видео, но режим видео включён!")
             return
 
         width = None
@@ -182,10 +274,14 @@ class MainWindow(QWidget):
         self.button_run.setEnabled(False)
         self.button_run.setText("Выполняется...")
 
+        self.screen.send_text("\033[H\033[J")
+
         if video:
-            self.worker = WorkerThread(self.run_video, [input_path, width, height, charset, ansi])
+            self.worker = WorkerThread(self.run_video, [input_path, width, height, charset, ansi, self._frame_done])
+            self.worker.frame_signal.connect(self.render_frame)
         else:
             self.worker = WorkerThread(self.run_image, [input_path, width, height, charset, output_path, ansi])
+            self.worker.frame_signal.connect(self.render_frame)
 
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
@@ -204,21 +300,18 @@ class MainWindow(QWidget):
         image = handling.prepare(input_path, width, height)
         image_ascii = converter.convert(image, charset)
 
-        print("\033[H\033[J", end="")
-
         if output_path and ansi:
             raise Exception("Цветной вывод в файл невозможен!")
         elif ansi:
-            writer = AnsiWriter()
-            writer.write(image_ascii)
+            ansi_text = self.to_ansi(image_ascii)
+            self.worker.frame_signal.emit(ansi_text)
         elif output_path != "":
             writer = FileWriter(output_path)
             writer.write(image_ascii)
         else:
-            writer = console_writer.ConsoleWriter()
-            writer.write(image_ascii)
+            self.worker.frame_signal.emit(image_ascii)
 
-    def run_video(self, input_path, width, height, charset, ansi):
+    def run_video(self, input_path, width, height, charset, ansi, frame_done):
         KADR = 1
         frames, fps = video_reader.read_video(input_path, KADR)
 
@@ -228,26 +321,44 @@ class MainWindow(QWidget):
         for frame_path in frames:
             image = handling.prepare(frame_path, width, height)
             image_ascii = converter.convert(image, charset)
-            processed_frames.append(image_ascii)
+
+            if ansi:
+                frame = self.to_ansi(image_ascii)
+            else:
+                frame = image_ascii
+
+            processed_frames.append(frame)
 
         video_reader.delete_temp(frames)
 
-        if ansi:
-            writer = AnsiWriter()
-        else:
-            writer = console_writer.ConsoleWriter()
-
-        print("\033[H\033[J", end="")
         for frame in processed_frames:
-            print("\033[" + str(len(frame)) + "A", end="")
-            writer.write(frame)
+            frame_done.clear()
+            self.worker.frame_signal.emit(frame)
+            frame_done.wait(timeout=1.0)
             time.sleep(delay)
 
-        print("\033[H\033[J", end="")
+    def render_frame(self, frame):
+        if isinstance(frame, str):
+            self.screen.send_text("\033[H" + frame)
+            return
 
-    def closeEvent(self, event):
-        print("\033[H\033[J", end="")
-        event.accept()
+        lines_out = []
+        for row in frame:
+            line = "".join((cell[0] * 2) for cell in row if isinstance(cell, tuple))
+            lines_out.append(line)
+
+        text = "\n".join(lines_out)
+        self.screen.send_text("\033[H" + text)
+
+    def to_ansi(self, image_ascii):
+        out = []
+        for row in image_ascii:
+            line = ""
+            for ch, r, g, b in row:
+                line += f"\033[38;2;{r};{g};{b}m{ch}" * 2
+            line += "\033[0m"
+            out.append(line)
+        return "\n".join(out)
 
 
 if __name__ == "__main__":
