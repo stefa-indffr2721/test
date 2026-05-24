@@ -1,8 +1,10 @@
 import sys
 import zlib
+from typing import Optional
 
 
-def read_number(data, offset):
+def read_number(data: bytes, offset: int) -> int:
+    """Читает 4 байта из data и возвращает число в формате big-endian."""
     b0 = data[offset]
     b1 = data[offset + 1]
     b2 = data[offset + 2]
@@ -10,8 +12,9 @@ def read_number(data, offset):
     return b0 * 256**3 + b1 * 256**2 + b2 * 256 + b3
 
 
-def predict_pixel(left, up, up_left):
-    p = left + up - up_left # плавное изменение яркости
+def predict_pixel(left: int, up: int, up_left: int) -> int:
+    """Фильтр из стандарта PNG. Предсказывает значение пикселя по трём соседним и возвращает ближайшего."""
+    p = left + up - up_left
     distance_a = abs(p - left)
     distance_b = abs(p - up)
     distance_c = abs(p - up_left)
@@ -24,7 +27,12 @@ def predict_pixel(left, up, up_left):
         return up_left
 
 
-def remove_filters(raw_data, width, bytes_per_pixel):
+def remove_filters(raw_data: bytes, width: int, bytes_per_pixel: int) -> list:
+    """
+    Убирает PNG-фильтры из сырых данных пикселей.
+    Каждая строка начинается с байта типа фильтра (0-4).
+    Возвращает список байт без фильтров.
+    """
     pixels_per_row = width * bytes_per_pixel
     result = []
     previous_row = [0] * pixels_per_row
@@ -81,12 +89,18 @@ def remove_filters(raw_data, width, bytes_per_pixel):
     return result
 
 
-def grayscale(r, g, b):
+def grayscale(r: int, g: int, b: int) -> int:
+    """Переводит RGB цвет в оттенок серого по формуле."""
     gray = 0.299 * r + 0.587 * g + 0.114 * b
     return round(gray)
 
 
-def read_png(path):
+def read_png(path: str) -> Optional[tuple]:
+    """
+    Читает PNG файл и возвращает - (пиксели, ширина, высота).
+    Каждый пиксель это кортеж (gray, r, g, b).
+    Поддерживает color_type: 0 (серый), 2 (RGB), 3 (палитра), 4 (серый+альфа), 6 (RGBA).
+    """
     file = open(path, "rb")
     data = file.read()
     file.close()
@@ -144,43 +158,43 @@ def read_png(path):
     raw_pixels = zlib.decompress(compressed_data)
 
     if color_type == 0:
-        bytes_per_pixel = 1  # яркость
+        bytes_per_pixel = 1
     elif color_type == 2:
-        bytes_per_pixel = 3  # rgb
+        bytes_per_pixel = 3
     elif color_type == 3:
-        bytes_per_pixel = 1  # индекс в палитре
+        bytes_per_pixel = 1
     elif color_type == 4:
-        bytes_per_pixel = 2  # яркость и прозрачность
+        bytes_per_pixel = 2
     elif color_type == 6:
-        bytes_per_pixel = 4  # rgb + прозрачность
+        bytes_per_pixel = 4
 
     flat_pixels = remove_filters(raw_pixels, width, bytes_per_pixel)
 
     pixels = []
     i = 0
     while i < len(flat_pixels):
-        if color_type == 0: # уже серый
+        if color_type == 0:
             gray = flat_pixels[i]
             r, g, b = gray, gray, gray
 
-        elif color_type == 2: # rgb
+        elif color_type == 2:
             r = flat_pixels[i]
             g = flat_pixels[i + 1]
             b = flat_pixels[i + 2]
             gray = grayscale(r, g, b)
 
-        elif color_type == 3: # индекс в палитре -> rgb
+        elif color_type == 3:
             index = flat_pixels[i]
             r, g, b = palette[index]
             gray = grayscale(r, g, b)
 
-        elif color_type == 4: # яркость и прозрачность, накладываем на чёрный фон
+        elif color_type == 4:
             gray_value = flat_pixels[i]
             alpha = flat_pixels[i + 1]
             gray = round(gray_value * alpha / 255)
             r, g, b = gray, gray, gray
 
-        elif color_type == 6: # rgb + прозрачность
+        elif color_type == 6:
             r = flat_pixels[i]
             g = flat_pixels[i + 1]
             b = flat_pixels[i + 2]

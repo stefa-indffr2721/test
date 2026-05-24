@@ -2,6 +2,8 @@ import sys
 import os.path
 import time
 import re
+import threading
+from typing import Optional
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -16,7 +18,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont, QColor, QTextCursor, QTextCharFormat, QTextBlockFormat
 from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
-import threading
 
 import handling
 import converter
@@ -26,11 +27,13 @@ import video_reader
 CHARSET = " .+*=#@"
 LINE_HEIGHT = 10
 
+
 class TerminalWidget(QPlainTextEdit):
     _text_ready = pyqtSignal(str)
     frame_done = None
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None) -> None:
+        """Создаёт виджет терминала с тёмным фоном."""
         super().__init__(parent)
         self.setReadOnly(True)
         self.setStyleSheet("background-color: #1e1e1e; color: #d3d7cf; line-height: 1;")
@@ -46,11 +49,13 @@ class TerminalWidget(QPlainTextEdit):
         self.setTextCursor(cursor)
         self._block_fmt = block_fmt
 
-    def send_text(self, text: str):
+    def send_text(self, text: str) -> None:
+        """Отправляет текст в виджет через сигнал из другого потока."""
         self._text_ready.emit(text)
 
     @pyqtSlot(str)
-    def _do_send_text(self, text: str):
+    def _do_send_text(self, text: str) -> None:
+        """Обрабатывает и отображает текст с ANSI escape-кодами."""
         if text.startswith("\033[H\033[J"):
             text = text[len("\033[H\033[J"):]
         elif text.startswith("\033[H"):
@@ -103,12 +108,14 @@ class WorkerThread(QThread):
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, task, args):
+    def __init__(self, task: callable, args: list) -> None:
+        """Принимает функцию и аргументы для запуска в отдельном потоке."""
         super().__init__()
         self.task = task
         self.args = args
 
-    def run(self):
+    def run(self) -> None:
+        """Запускает задачу в отдельном потоке, при ошибке отправляет сигнал error."""
         try:
             self.task(*self.args)
             self.finished.emit()
@@ -118,15 +125,16 @@ class WorkerThread(QThread):
 
 class MainWindow(QWidget):
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Создаёт главное окно приложения."""
         super().__init__()
         self.setWindowTitle("ASCII-Art")
         self.setFixedSize(420, 610)
         self.worker = None
         self.setup_ui()
 
-    def setup_ui(self):
-
+    def setup_ui(self) -> None:
+        """Создаёт и размещает все элементы интерфейса."""
         self.label_input = QLabel("Входной файл:", self)
         self.label_input.move(20, 20)
 
@@ -202,22 +210,26 @@ class MainWindow(QWidget):
         self._frame_done = threading.Event()
         self.screen.frame_done = self._frame_done
 
-    def browse_input(self):
+    def browse_input(self) -> None:
+        """Открывает диалог выбора входного файла."""
         path, _ = QFileDialog.getOpenFileName(self, "Выберите файл", "", "Файлы (*.png *.mp4 *.avi)")
         if path != "":
             self.field_input.setText(path)
 
-    def browse_charset(self):
+    def browse_charset(self) -> None:
+        """Открывает диалог выбора файла с набором символов."""
         path, _ = QFileDialog.getOpenFileName(self, "Выберите файл с символами", "", "Текстовые файлы (*.txt)")
         if path != "":
             self.field_charset.setText(path)
 
-    def browse_output(self):
+    def browse_output(self) -> None:
+        """Открывает диалог выбора выходного файла."""
         path, _ = QFileDialog.getSaveFileName(self, "Выберите куда сохранить", "", "Текстовые файлы (*.txt)")
         if path != "":
             self.field_output.setText(path)
 
-    def run(self):
+    def run(self) -> None:
+        """Считывает поля формы, проверяет их и запускает обработку в отдельном потоке."""
         input_path = self.field_input.text()
         output_path = self.field_output.text()
         charset_path = self.field_charset.text()
@@ -287,16 +299,19 @@ class MainWindow(QWidget):
         self.worker.error.connect(self.on_error)
         self.worker.start()
 
-    def on_finished(self):
+    def on_finished(self) -> None:
+        """Разблокирует кнопку после завершения обработки."""
         self.button_run.setEnabled(True)
         self.button_run.setText("Запустить")
 
-    def on_error(self, message):
+    def on_error(self, message: str) -> None:
+        """Разблокирует кнопку и показывает сообщение об ошибке."""
         self.button_run.setEnabled(True)
         self.button_run.setText("Запустить")
         QMessageBox.critical(self, "Ошибка", message)
 
-    def run_image(self, input_path, width, height, charset, output_path, ansi):
+    def run_image(self, input_path: str, width: Optional[int], height: Optional[int], charset: str, output_path: str, ansi: bool) -> None:
+        """Обрабатывает изображение и выводит результат в терминал или файл."""
         image = handling.prepare(input_path, width, height)
         image_ascii = converter.convert(image, charset)
 
@@ -311,7 +326,8 @@ class MainWindow(QWidget):
         else:
             self.worker.frame_signal.emit(image_ascii)
 
-    def run_video(self, input_path, width, height, charset, ansi, frame_done):
+    def run_video(self, input_path: str, width: Optional[int], height: Optional[int], charset: str, ansi: bool, frame_done: threading.Event) -> None:
+        """Обрабатывает видео покадрово и воспроизводит ASCII-арт в терминале."""
         KADR = 1
         frames, fps = video_reader.read_video(input_path, KADR)
 
@@ -337,7 +353,8 @@ class MainWindow(QWidget):
             frame_done.wait(timeout=1.0)
             time.sleep(delay)
 
-    def render_frame(self, frame):
+    def render_frame(self, frame) -> None:
+        """Отображает кадр в виджете терминала, принимает строку или двумерный массив."""
         if isinstance(frame, str):
             self.screen.send_text("\033[H" + frame)
             return
@@ -350,7 +367,8 @@ class MainWindow(QWidget):
         text = "\n".join(lines_out)
         self.screen.send_text("\033[H" + text)
 
-    def to_ansi(self, image_ascii):
+    def to_ansi(self, image_ascii: list) -> str:
+        """Переводит двумерный массив символов в строку с ANSI escape-кодами цвета."""
         out = []
         for row in image_ascii:
             line = ""

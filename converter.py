@@ -1,4 +1,9 @@
-def convert(pixels_2d, charset):
+def convert(pixels_2d: list, charset: str) -> list:
+    """
+    Переводит двумерный массив пикселей в ASCII-арт.
+    Каждый пиксель (gray, r, g, b) -> (символ, r, g, b).
+    Символ выбирается по яркости из charset.
+    """
     dim = len(charset) - 1
 
     ascii_2d = []

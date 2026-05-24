@@ -2,6 +2,7 @@ import sys
 import argparse
 import time
 import os.path
+from typing import Optional
 
 import handling
 import converter
@@ -12,7 +13,9 @@ import video_reader
 
 CHARSET = " .+*=#@"
 
-def get_args():
+
+def get_args() -> argparse.Namespace:
+    """Читает и проверяет аргументы командной строки, завершает программу при ошибке."""
     parser = argparse.ArgumentParser(prog="ASCII-Art")
     parser.add_argument("-i", "--input", type=str, default=None, help="входное изображение или видео")
     parser.add_argument("-w", "--wight",  type=int, default=None, help="ширина выходного изображения (в символах)")
@@ -44,7 +47,8 @@ def get_args():
     return args
 
 
-def print_to(image, path, ansi):
+def print_to(image: list, path: Optional[str], ansi: bool) -> None:
+    """Выводит ASCII-арт в консоль, файл или в ANSI-art в зависимости от параметров."""
     if ansi and path:
         print("Цветной вывод в файл невозможен")
         sys.exit(1)
@@ -59,7 +63,8 @@ def print_to(image, path, ansi):
         writer.write(image)
 
 
-def get_charset(args):
+def get_charset(args: argparse.Namespace) -> str:
+    """Возвращает набор символов для ASCII-арта."""
     if not args.set is None:
         if not os.path.exists(str(args.set)):
             print("файл указанный как charset - не существует")
@@ -77,7 +82,8 @@ def get_charset(args):
     return charset
 
 
-def play_video(args, charset):
+def play_video(args: argparse.Namespace, charset: str) -> None:
+    """Читает видео, переводит каждый кадр в ASCII-арт и воспроизводит в терминале."""
     KADR = 1
     print("Читаем видео")
     frames, fps = video_reader.read_video(args.input, KADR)
@@ -106,7 +112,8 @@ def play_video(args, charset):
     print("\033[H\033[J", end="")
 
 
-def main():
+def main() -> None:
+    """Точка входа программы, читает аргументы и запускает нужный режим."""
     args = get_args()
     charset = get_charset(args)
 

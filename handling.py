@@ -1,9 +1,14 @@
 import png_opener
+from typing import Optional
 
-def prepare(path_to_image, width, height):
+
+def prepare(path_to_image: str, width: Optional[int], height: Optional[int]) -> list:
+    """
+    Читает png файл и возвращает двумерный массив пикселей.
+    Если указаны width или height, то масштабирует изображение.
+    """
     (pixels, width_fact, height_fact) = png_opener.read_png(path_to_image)
 
-    # превращаем в 2D массив
     pixels_2d = []
     for y in range(height_fact):
         start = y * width_fact
@@ -16,7 +21,12 @@ def prepare(path_to_image, width, height):
     return pixels_2d
 
 
-def resize(pixels_2d, width_fact, height_fact, width, height):
+def resize(pixels_2d: list, width_fact: int, height_fact: int, width: Optional[int], height: Optional[int]) -> list:
+    """
+    Масштабирует двумерный массив пикселей до нужного размера.
+    Если width или height равны None — считает их автоматически сохраняя пропорции.
+    Если оба None, то возвращает массив без изменений.
+    """
     if width is None and height is None:
         return pixels_2d
 
