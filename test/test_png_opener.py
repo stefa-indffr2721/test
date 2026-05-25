@@ -47,6 +47,21 @@ class TestPngOpener(unittest.TestCase):
         result = png_opener.remove_filters(raw, width=3, bytes_per_pixel=1)
         self.assertEqual(result, [10, 10, 10, 11, 11, 11])
 
+    def test_predict_pixel_up_left_wins(self):
+        """ если верхне-левый пиксель ближе всего к предсказанному, то возвращаем его """
+        self.assertEqual(png_opener.predict_pixel(10, 5, 8), 8)
+
+    def test_remove_filters_type_3(self):
+        """ проверяет что фильтр типа 3 правильно декодирует строку пикселей """
+        raw = bytes([3, 5, 3, 4])
+        result = png_opener.remove_filters(raw, width=3, bytes_per_pixel=1)
+        self.assertEqual(result, [5, 5, 6])
+
+    def test_remove_filters_type_4(self):
+        """ проверяет что фильтр типа 4 правильно декодирует строку пикселей """
+        raw = bytes([4, 5, 3, 4])
+        result = png_opener.remove_filters(raw, width=3, bytes_per_pixel=1)
+        self.assertEqual(result, [5, 8, 12])
 
 if __name__ == "__main__":
     unittest.main()
