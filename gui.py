@@ -33,7 +33,11 @@ class TerminalWidget(QPlainTextEdit):
     frame_done = None
 
     def __init__(self, parent=None) -> None:
-        """Создаёт виджет терминала с тёмным фоном."""
+        """Инициализирует виджет терминала с тёмным фоном и моноширинным шрифтом.
+
+        Args:
+            parent: родительский виджет Qt, или None.
+        """
         super().__init__(parent)
         self.setReadOnly(True)
         self.setStyleSheet("background-color: #1e1e1e; color: #d3d7cf; line-height: 1;")
@@ -50,12 +54,28 @@ class TerminalWidget(QPlainTextEdit):
         self._block_fmt = block_fmt
 
     def send_text(self, text: str) -> None:
-        """Отправляет текст в виджет через сигнал из другого потока."""
+        """Передаёт текст для отображения через сигнал, потокобезопасно.
+
+        Метод можно вызывать из любого потока — текст будет обработан
+        в основном потоке Qt через механизм сигналов.
+
+        Args:
+            text: текст с возможными ANSI escape-кодами для вывода.
+        """
         self._text_ready.emit(text)
 
     @pyqtSlot(str)
     def _do_send_text(self, text: str) -> None:
-        """Обрабатывает и отображает текст с ANSI escape-кодами."""
+        """Обрабатывает и отображает текст с ANSI escape-кодами цвета.
+
+        Вызывается в основном потоке Qt через сигнал _text_ready.
+        Обрабатывает escape-коды очистки экрана (\033[H\033[J и \033[H),
+        ANSI-коды цвета (38;2;r;g;b) и сброса (0).
+        После отрисовки устанавливает событие frame_done если оно задано.
+
+        Args:
+            text: текст с ANSI escape-кодами для отображения.
+        """
         if text.startswith("\033[H\033[J"):
             text = text[len("\033[H\033[J"):]
         elif text.startswith("\033[H"):
@@ -109,13 +129,25 @@ class WorkerThread(QThread):
     error = pyqtSignal(str)
 
     def __init__(self, task: callable, args: list) -> None:
-        """Принимает функцию и аргументы для запуска в отдельном потоке."""
+        """Инициализирует рабочий поток с задачей и аргументами.
+
+        Args:
+            task: вызываемый объект, который будет запущен в отдельном потоке.
+            args: список позиционных аргументов для передачи в task.
+        """
         super().__init__()
         self.task = task
         self.args = args
 
     def run(self) -> None:
-        """Запускает задачу в отдельном потоке, при ошибке отправляет сигнал error."""
+        """Запускает задачу в отдельном потоке.
+
+        По завершении испускает сигнал finished.
+
+        Raises:
+            — не пробрасывает исключения наружу: при любой ошибке
+              испускает сигнал error(str) с текстом исключения.
+        """
         try:
             self.task(*self.args)
             self.finished.emit()
@@ -126,7 +158,7 @@ class WorkerThread(QThread):
 class MainWindow(QWidget):
 
     def __init__(self) -> None:
-        """Создаёт главное окно приложения."""
+        """Инициализирует главное окно приложения и все дочерние виджеты."""
         super().__init__()
         self.setWindowTitle("ASCII-Art")
         self.setFixedSize(420, 610)
@@ -134,7 +166,7 @@ class MainWindow(QWidget):
         self.setup_ui()
 
     def setup_ui(self) -> None:
-        """Создаёт и размещает все элементы интерфейса."""
+        """Создаёт и размещает все элементы интерфейса в окне."""
         self.label_input = QLabel("Входной файл:", self)
         self.label_input.move(20, 20)
 
@@ -211,25 +243,31 @@ class MainWindow(QWidget):
         self.screen.frame_done = self._frame_done
 
     def browse_input(self) -> None:
-        """Открывает диалог выбора входного файла."""
+        """Открывает диалог выбора входного файла и заполняет поле field_input."""
         path, _ = QFileDialog.getOpenFileName(self, "Выберите файл", "", "Файлы (*.png *.mp4 *.avi)")
         if path != "":
             self.field_input.setText(path)
 
     def browse_charset(self) -> None:
-        """Открывает диалог выбора файла с набором символов."""
+        """Открывает диалог выбора файла с набором символов и заполняет field_charset."""
         path, _ = QFileDialog.getOpenFileName(self, "Выберите файл с символами", "", "Текстовые файлы (*.txt)")
         if path != "":
             self.field_charset.setText(path)
 
     def browse_output(self) -> None:
-        """Открывает диалог выбора выходного файла."""
+        """Открывает диалог сохранения выходного файла и заполняет field_output."""
         path, _ = QFileDialog.getSaveFileName(self, "Выберите куда сохранить", "", "Текстовые файлы (*.txt)")
         if path != "":
             self.field_output.setText(path)
 
     def run(self) -> None:
-        """Считывает поля формы, проверяет их и запускает обработку в отдельном потоке."""
+        """Считывает поля формы, валидирует ввод и запускает обработку в фоновом потоке.
+
+        Блокирует кнопку «Запустить» на время выполнения.
+        Показывает QMessageBox при обнаружении ошибок ввода:
+        отсутствие входного файла, несоответствие типа файла режиму,
+        отсутствие размеров, попытка сохранить видео в файл.
+        """
         input_path = self.field_input.text()
         output_path = self.field_output.text()
         charset_path = self.field_charset.text()
@@ -300,18 +338,36 @@ class MainWindow(QWidget):
         self.worker.start()
 
     def on_finished(self) -> None:
-        """Разблокирует кнопку после завершения обработки."""
+        """Разблокирует кнопку «Запустить» после завершения обработки."""
         self.button_run.setEnabled(True)
         self.button_run.setText("Запустить")
 
     def on_error(self, message: str) -> None:
-        """Разблокирует кнопку и показывает сообщение об ошибке."""
+        """Разблокирует кнопку и показывает диалог с сообщением об ошибке.
+
+        Args:
+            message: текст ошибки для отображения в QMessageBox.
+        """
         self.button_run.setEnabled(True)
         self.button_run.setText("Запустить")
         QMessageBox.critical(self, "Ошибка", message)
 
     def run_image(self, input_path: str, width: Optional[int], height: Optional[int], charset: str, output_path: str, ansi: bool) -> None:
-        """Обрабатывает изображение и выводит результат в терминал или файл."""
+        """Обрабатывает одно изображение и отправляет результат в нужный приёмник.
+
+        Вызывается в фоновом потоке через WorkerThread.
+
+        Args:
+            input_path: путь к входному PNG-файлу.
+            width: целевая ширина в символах, или None.
+            height: целевая высота в символах, или None.
+            charset: строка символов для маппинга яркости.
+            output_path: путь к выходному файлу, или пустая строка для вывода в виджет.
+            ansi: если True — использовать цветной ANSI-вывод в виджет.
+
+        Raises:
+            Exception: если одновременно задан output_path и ansi=True.
+        """
         image = handling.prepare(input_path, width, height)
         image_ascii = converter.convert(image, charset)
 
@@ -327,7 +383,21 @@ class MainWindow(QWidget):
             self.worker.frame_signal.emit(image_ascii)
 
     def run_video(self, input_path: str, width: Optional[int], height: Optional[int], charset: str, ansi: bool, frame_done: threading.Event) -> None:
-        """Обрабатывает видео покадрово и воспроизводит ASCII-арт в терминале."""
+        """Обрабатывает видео и воспроизводит ASCII-арт покадрово в виджете.
+
+        Читает все кадры в память, конвертирует их в ASCII-арт,
+        удаляет временные файлы, затем воспроизводит с исходной частотой
+        кадров. Вызывается в фоновом потоке через WorkerThread.
+
+        Args:
+            input_path: путь к входному видеофайлу.
+            width: целевая ширина кадра в символах, или None.
+            height: целевая высота кадра в символах, или None.
+            charset: строка символов для маппинга яркости.
+            ansi: если True — использовать цветной ANSI-вывод.
+            frame_done: событие для синхронизации с основным потоком;
+                        ожидается после отправки каждого кадра в виджет.
+        """
         KADR = 1
         frames, fps = video_reader.read_video(input_path, KADR)
 
@@ -354,7 +424,15 @@ class MainWindow(QWidget):
             time.sleep(delay)
 
     def render_frame(self, frame) -> None:
-        """Отображает кадр в виджете терминала, принимает строку или двумерный массив."""
+        """Отображает кадр в виджете терминала.
+
+        Принимает как строку с ANSI-кодами (цветной режим),
+        так и двумерный список кортежей (чёрно-белый режим).
+
+        Args:
+            frame: строка с ANSI escape-кодами, или двумерный список
+                   кортежей (символ, r, g, b, ...) для монохромного вывода.
+        """
         if isinstance(frame, str):
             self.screen.send_text("\033[H" + frame)
             return
@@ -368,7 +446,17 @@ class MainWindow(QWidget):
         self.screen.send_text("\033[H" + text)
 
     def to_ansi(self, image_ascii: list) -> str:
-        """Переводит двумерный массив символов в строку с ANSI escape-кодами цвета."""
+        """Переводит двумерный массив ASCII-арта в строку с ANSI escape-кодами цвета.
+
+        Каждый символ дублируется и окрашивается своим RGB-цветом.
+        В конце каждой строки добавляется сброс цвета (\033[0m).
+
+        Args:
+            image_ascii: двумерный список кортежей (символ, r, g, b).
+
+        Returns:
+            строка с ANSI escape-кодами, готовая для передачи в send_text().
+        """
         out = []
         for row in image_ascii:
             line = ""
