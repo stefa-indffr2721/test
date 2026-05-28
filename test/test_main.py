@@ -48,6 +48,13 @@ class TestGetCharset(unittest.TestCase):
         with self.assertRaises(SystemExit):
             main.get_charset(args)
 
+    def test_charset_nonexistent_file_exits(self):
+        """ если файл с символами не существует, то завершается с ошибкой """
+        args = FakeArgs()
+        args.set = "totally_nonexistent_file.txt"
+        with self.assertRaises(SystemExit):
+            main.get_charset(args)
+
 
 class TestPrintTo(unittest.TestCase):
 
@@ -71,6 +78,12 @@ class TestPrintTo(unittest.TestCase):
     def test_print_ansi(self):
         """ проверка, что print_to не падает при ansi выводе """
         main.print_to(self.image, None, True)
+
+    def test_print_to_ansi_and_file_exits(self):
+        """ если одновременно указаны ansi и файл, то программа завершается с ошибкой """
+        with self.assertRaises(SystemExit):
+            main.print_to(self.image, "output.txt", True)
+
 
 
 class TestPlayVideo(unittest.TestCase):

@@ -1,7 +1,10 @@
+# python3 -m coverage run --source=. -m unittest discover -s test && python3 -m coverage report --omit="*/site-packages/*"
+
 import sys
 import argparse
 import time
 import os.path
+from typing import Optional
 
 import handling
 import converter
@@ -12,7 +15,19 @@ import video_reader
 
 CHARSET = " .+*=#@"
 
-def get_args():
+
+def get_args() -> argparse.Namespace:
+    """Разбирает и валидирует аргументы командной строки.
+
+    Returns:
+        объект Namespace с полями: input, wight, height, set,
+        output, ansi, video.
+
+    Raises:
+        SystemExit: если указаны несовместимые флаги (--output и --video),
+                    передан пустой --set, входной файл не найден
+                    или аргумент --input не указан.
+    """
     parser = argparse.ArgumentParser(prog="ASCII-Art")
     parser.add_argument("-i", "--input", type=str, default=None, help="входное изображение или видео")
     parser.add_argument("-w", "--wight",  type=int, default=None, help="ширина выходного изображения (в символах)")
@@ -44,7 +59,18 @@ def get_args():
     return args
 
 
-def print_to(image, path, ansi):
+def print_to(image: list, path: Optional[str], ansi: bool) -> None:
+    """Выводит ASCII-арт в нужный приёмник в зависимости от параметров.
+
+    Args:
+        image: двумерный список кортежей (символ, r, g, b).
+        path: путь к выходному файлу, или None для вывода в консоль.
+        ansi: если True — выводить в терминал с цветом через ANSI-коды.
+
+    Raises:
+        SystemExit: если одновременно указаны ansi=True и ненулевой path,
+                    так как цветной вывод в файл не поддерживается.
+    """
     if ansi and path:
         print("Цветной вывод в файл невозможен")
         sys.exit(1)
@@ -59,7 +85,21 @@ def print_to(image, path, ansi):
         writer.write(image)
 
 
-def get_charset(args):
+def get_charset(args: argparse.Namespace) -> str:
+    """Возвращает набор символов для ASCII-арта из файла или по умолчанию.
+
+    Если в args.set указан путь к файлу, читает первую строку файла
+    как charset. Если args.set равен None, возвращает CHARSET по умолчанию.
+
+    Args:
+        args: разобранные аргументы командной строки с полем set.
+
+    Returns:
+        строка символов для маппинга яркости, длиной не менее 1.
+
+    Raises:
+        SystemExit: если файл charset не существует или пуст.
+    """
     if not args.set is None:
         if not os.path.exists(str(args.set)):
             print("файл указанный как charset - не существует")
@@ -77,7 +117,20 @@ def get_charset(args):
     return charset
 
 
-def play_video(args, charset):
+def play_video(args: argparse.Namespace, charset: str) -> None:
+    """Читает видео, конвертирует все кадры в ASCII-арт и воспроизводит в терминале.
+
+    Сначала считывает и обрабатывает все кадры, затем воспроизводит
+    их последовательно с исходной частотой кадров. Временные PNG-файлы
+    удаляются после обработки. Воспроизведение использует цветной ANSI-вывод.
+
+    Args:
+        args: разобранные аргументы командной строки с полями:
+              input — путь к видеофайлу,
+              wight — целевая ширина в символах,
+              height — целевая высота в символах.
+        charset: строка символов для маппинга яркости.
+    """
     KADR = 1
     print("Читаем видео")
     frames, fps = video_reader.read_video(args.input, KADR)
@@ -106,7 +159,13 @@ def play_video(args, charset):
     print("\033[H\033[J", end="")
 
 
-def main():
+def main() -> None:
+    """Точка входа программы.
+
+    Читает аргументы командной строки, загружает charset и запускает
+    обработку изображения или воспроизведение видео в зависимости
+    от флага --video.
+    """
     args = get_args()
     charset = get_charset(args)
 
